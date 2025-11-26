@@ -48,25 +48,22 @@ TIM_HandleTypeDef htim4;
 TIM_HandleTypeDef htim8;
 
 UART_HandleTypeDef huart2;
+DMA_HandleTypeDef hdma_usart2_tx;
 
 osThreadId sensor1Handle;
 osThreadId sensor02Handle;
 osThreadId sensor03Handle;
 osThreadId myTask04Handle;
-osSemaphoreId semSensor1Handle;
-osSemaphoreId semSensor2Handle;
-osSemaphoreId semSensor3Handle;
 /* USER CODE BEGIN PV */
 
 /* USER CODE BEGIN PV */
-osSemaphoreId semSensor1Handle;
-osSemaphoreId semSensor2Handle;
-osSemaphoreId semSensor3Handle;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
+static void MX_DMA_Init(void);
 static void MX_USART2_UART_Init(void);
 static void MX_TIM1_Init(void);
 static void MX_TIM2_Init(void);
@@ -83,11 +80,15 @@ void StartTask04(void const * argument);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-void UART_SEND(UART_HandleTypeDef *huart, char buffer[])
-{
-	HAL_UART_Transmit(huart, (uint8_t*) buffer, strlen(buffer), HAL_MAX_DELAY);
 
-}
+volatile uint8_t uart2_tx_ready = 1;
+
+
+
+int calcavg(uint8_t d1, uint8_t d2, uint8_t d3) { return (d1 + d2 + d3) / 3;} // divide by float to get float result }
+int calcmax(uint8_t d1, uint8_t d2, uint8_t d3) { int max = d1 > d2 ? d1 : d2; return d3 > max ? d3 : max; }
+int calcmin(uint8_t d1, uint8_t d2, uint8_t d3) { int min = d1 < d2 ? d1 : d2; return d3 < min ? d3 : min; }
+
 void delay (uint16_t time)
 {
 	__HAL_TIM_SET_COUNTER(&htim1, 0);
@@ -140,23 +141,7 @@ uint8_t tim4Is_First_Captured = 0;  // is the first value captured ?
 uint8_t tim4Distance  = 0;
 
 
-float avg;
-int min;
-int max;
 
-float calcavg(Distance, tim2Distance, tim4Distance)
-{
-	return (Distance + tim2Distance + tim4Distance)/3;
-}
-int calcmax(Distance, tim2Distance, tim4Distance)
-{
-	return tim4Distance > (Distance > tim2Distance? Distance : tim2Distance)? tim4Distance : (Distance > tim2Distance? Distance : tim2Distance);
-}
-
-int calcmin(Distance, tim2Distance, tim4Distance)
-{
-	return tim4Distance < (Distance < tim2Distance? Distance : tim2Distance)? tim4Distance : (Distance < tim2Distance? Distance : tim2Distance);
-}
 
 
 #define TRIG_PIN GPIO_PIN_9
@@ -204,7 +189,7 @@ void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim)
 					// set polarity to rising edge
 					__HAL_TIM_SET_CAPTUREPOLARITY(htim, TIM_CHANNEL_1, TIM_INPUTCHANNELPOLARITY_RISING);
 					__HAL_TIM_DISABLE_IT(&htim1, TIM_IT_CC1);
-					osSemaphoreRelease(semSensor1Handle);
+
 
 				}
 			}
@@ -242,7 +227,7 @@ void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim)
 					// set polarity to rising edge
 					__HAL_TIM_SET_CAPTUREPOLARITY(htim, TIM_CHANNEL_1, TIM_INPUTCHANNELPOLARITY_RISING);
 					__HAL_TIM_DISABLE_IT(&htim2, TIM_IT_CC1);
-					osSemaphoreRelease(semSensor2Handle);
+
 
 				}
 			}
@@ -280,7 +265,7 @@ void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim)
 					// set polarity to rising edge
 					__HAL_TIM_SET_CAPTUREPOLARITY(htim, TIM_CHANNEL_1, TIM_INPUTCHANNELPOLARITY_RISING);
 					__HAL_TIM_DISABLE_IT(&htim8, TIM_IT_CC1);
-					osSemaphoreRelease(semSensor3Handle);
+
 
 				}
 			}
@@ -288,19 +273,12 @@ void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim)
 
 }
 
-// might need to go in task
-void HCSR04_Read (void)
-{
-	HAL_GPIO_WritePin(TRIG_PORT, TRIG_PIN, GPIO_PIN_SET);  // pull the TRIG pin HIGH
-	delay(10);  // wait for 10 us
-	HAL_GPIO_WritePin(TRIG_PORT, TRIG_PIN, GPIO_PIN_RESET);  // pull the TRIG pin low
-
-	__HAL_TIM_ENABLE_IT(&htim1, TIM_IT_CC1);
-}
 char msg[50];
 char tim2msg[50];
 char tim4msg[50];
 char calcmsg[100];
+static char bigBuffer[75];
+
 
 /* USER CODE END 0 */
 
@@ -333,6 +311,7 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
+  MX_DMA_Init();
   MX_USART2_UART_Init();
   MX_TIM1_Init();
   MX_TIM2_Init();
@@ -358,19 +337,6 @@ HAL_TIM_IC_Start_IT(&htim8, TIM_CHANNEL_1);
   /* add mutexes, ... */
   /* USER CODE END RTOS_MUTEX */
 
-  /* Create the semaphores(s) */
-  /* definition and creation of semSensor1 */
-  osSemaphoreDef(semSensor1);
-  semSensor1Handle = osSemaphoreCreate(osSemaphore(semSensor1), 1);
-  osSemaphoreWait(semSensor1Handle, 0);
-  /* definition and creation of semSensor2 */
-  osSemaphoreDef(semSensor2);
-  semSensor2Handle = osSemaphoreCreate(osSemaphore(semSensor2), 1);
-  osSemaphoreWait(semSensor2Handle, 0);
-  /* definition and creation of semSensor3 */
-  osSemaphoreDef(semSensor3);
-  semSensor3Handle = osSemaphoreCreate(osSemaphore(semSensor3), 1);
-  osSemaphoreWait(semSensor3Handle, 0);
   /* USER CODE BEGIN RTOS_SEMAPHORES */
   /* add semaphores, ... */
 
@@ -711,6 +677,22 @@ static void MX_USART2_UART_Init(void)
 }
 
 /**
+  * Enable DMA controller clock
+  */
+static void MX_DMA_Init(void)
+{
+
+  /* DMA controller clock enable */
+  __HAL_RCC_DMA1_CLK_ENABLE();
+
+  /* DMA interrupt init */
+  /* DMA1_Stream6_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Stream6_IRQn, 5, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Stream6_IRQn);
+
+}
+
+/**
   * @brief GPIO Initialization Function
   * @param None
   * @retval None
@@ -774,7 +756,6 @@ void StartDefaultTask(void const * argument)
 	  __HAL_TIM_ENABLE_IT(&htim1, TIM_IT_CC1);
 
 	  // WAIT for ISR to finish
-	  osSemaphoreWait(semSensor1Handle, osWaitForever);
 
 	  // small gap before retrigger
 	  osDelay(50);
@@ -802,7 +783,7 @@ void StartTask02(void const * argument)
 
 	  __HAL_TIM_ENABLE_IT(&htim2, TIM_IT_CC1);
 
-	  osSemaphoreWait(semSensor2Handle, osWaitForever);
+
 
 	  osDelay(50);
 
@@ -830,7 +811,6 @@ void StartTask03(void const * argument)
 
 	  __HAL_TIM_ENABLE_IT(&htim8, TIM_IT_CC1);
 
-	  osSemaphoreWait(semSensor3Handle, osWaitForever);
 
 	  osDelay(50);
 
@@ -848,32 +828,30 @@ void StartTask03(void const * argument)
 void StartTask04(void const * argument)
 {
   /* USER CODE BEGIN StartTask04 */
+
   /* Infinite loop */
   for(;;)
   {
 	// Taks 1
 
-	sprintf(msg, "Sending from sensor 1, Distance: %u,    ", Distance);
-	UART_SEND(&huart2, msg);
 
-	// Task 2
-	sprintf(tim2msg, "sensor 2, Distance: %u,    ", tim2Distance);
-	UART_SEND(&huart2, tim2msg);
 
-	// Task 3
-	sprintf(tim4msg, "sensor 3, Distance: %u,	", tim4Distance);
-	UART_SEND(&huart2, tim4msg);
 
-	  sprintf(calcmsg, "Average: %f,	Minimum: %u, Maximum: %u\r\n", calcavg(Distance, tim2Distance, tim4Distance),calcmin(Distance, tim2Distance, tim4Distance), calcmax(Distance, tim2Distance, tim4Distance));
-		  		UART_SEND(&huart2, calcmsg);
+	sprintf(bigBuffer, "S1: %u, S2: %u,  S3: %u, A: %d, Min: %d, Max: %d\r\n ", Distance, tim2Distance, tim4Distance, calcavg(Distance, tim2Distance, tim4Distance),
+			calcmin(Distance, tim2Distance, tim4Distance),
+			calcmax(Distance, tim2Distance, tim4Distance));
+
+
+
+	HAL_UART_Transmit(&huart2, (uint8_t*) bigBuffer, strlen(bigBuffer), HAL_MAX_DELAY);
+
 
 
 	DutyCycle(Distance);	  // Sensor 1
 	DutyCycle2(tim2Distance); // Sensor 2
 	DutyCycle3(tim4Distance); // Sensor 3
 
-    osDelay(20);
-
+	osDelay(100);
   }
   /* USER CODE END StartTask04 */
 }
